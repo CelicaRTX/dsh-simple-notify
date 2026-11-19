@@ -1,0 +1,26 @@
+{
+  "name": "dsh-simple-notify",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop toast when a DeepSeek Harness turn finishes and the app is not in the foreground.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "win32"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

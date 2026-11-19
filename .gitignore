@@ -1,0 +1,15 @@
+# runtime log (contains local paths and timestamps)
+lib/turn-notify.log
+
+# self-check marker (per-machine state)
+lib/.last-selfcheck
+
+# test scratch
+_wftest.cjs
+
+# OS / editor noise
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp
+.vscode/
