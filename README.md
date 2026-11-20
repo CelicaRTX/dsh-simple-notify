@@ -1,122 +1,221 @@
 # dsh-simple-notify
 
-DSH 桌面端通知：一轮对话停下来等你的时候，右下角弹一个 Windows 系统气泡。
+给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 桌面端用的通知插件：
+**一轮对话停下来等你的时候，右下角弹一个 Windows 通知。**
 
-**只对你自己有用，不发布。** 仓库放在 `E:\deepseek-harness\default-workspace\dsh-simple-notify`，
-通过 junction 挂进 profile：`<DSH_HOME>\profiles\<profile>\node_modules\dsh-simple-notify`。
+<br>
+
+支持两种气泡、四个开关、点击回到 DSH。Windows 专用。
 
 ---
 
-## 它能做什么
+## 特性
 
-| 事件 | 行为 |
-|---|---|
-| 一轮对话结束（`agent/turn-stopping`） | 弹气泡，标题「任务完成」，正文是会话名 |
-| 模型提问等你回答（`user-questions/request`） | 弹气泡，标题「在等你回答 · 会话名」，正文是问题 |
-| 子 agent 的通知 | **默认不弹** |
-| DSH 窗口在前台 | **默认不弹** |
-| 自检发现问题 | 弹气泡，**无视前台规则**（看不见的错误更糟） |
-| **点气泡** | **把 DSH 窗口叫到前台**（两种气泡都支持） |
+- **两种触发**：一轮对话结束、模型停下来等你选选项
+- **两种气泡**：系统通知（进通知中心）和自绘置顶窗口（全屏时也能看见）
+- **四个开关，改完立即生效**，不用重启
+- **点气泡把 DSH 叫回前台**
+- **每日自检**：junction 断了、文件缺了、AUMID 没注册都会弹气泡告诉你
 
-## 点击气泡回到 DSH
+<br>
 
-点系统气泡的「打开 DSH」按钮，或点自绘气泡本身，会把 DSH 窗口恢复并切到前台。
+## 安装
 
-实现分两半：
+要求：Windows 10/11、DSH `>= 0.2.0-rc.2`、PowerShell 5.1（不需要 `pwsh`）。
 
-- **系统气泡**：toast XML 里放一个 `<action activationType="protocol" arguments="dsh://open">`。
-  点击交给 Windows 激活 `dsh:` 协议，命中的是正在运行的 DSH 单实例处理器
-  （`claimDesktopSingleInstance` → `focusPrimaryWindow`），效果就是窗口恢复 + 置顶 + 抢焦点。
-- **自绘气泡**：点一下先关掉自己，再用 Win32 `AttachThreadInput` + `SetForegroundWindow`
-  把窗口进程叫到前台。必须先关自己，否则那块 topmost 面板会盖住刚叫到前面的 DSH。
+**1. 把仓库放到任意位置**，例如 `D:\tools\dsh-simple-notify`。
 
-**注意这只能定位到「DSH 窗口」，不能定位到某个具体会话。** 桌面外壳没有会话级深链
-（`protocol.handle` 只认 `dsh://shell` 和 `dsh://app`，`DESKTOP_IPC` 里没有任何「打开会话」通道）。
-要做到「点通知直达某条会话」，得给插件补一个浏览器端半边去调 `ctx.uiWorkspace.openSession()`，
-是另一个量级的改动。
-
-自绘气泡点击后的结果写进日志（`click focus: focused` / `set-foreground refused` /
-`no main window (window is hidden to tray)`），失败不会静默。
-
-## 换电脑怎么搬
-
-1. 把整个 `dsh-simple-notify` 目录复制到新机器上任意位置（例如 `<工作区>\dsh-simple-notify`）。
-2. 在 `<DSH_HOME>\profiles\<profile>\node_modules\` 下建一个 junction 指过去：
-
-   ```powershell
-   New-Item -ItemType Junction `
-     -Path   "$env:DSH_HOME\profiles\desktop\node_modules\dsh-simple-notify" `
-     -Target "<新机器上的插件目录>"
-   ```
-
-3. 确认 profile 的 `package.json` 里有这两处：
-
-   ```json
-   "dependencies": { "dsh-simple-notify": "*" },
-   "dsh": { "profile": { "bundles": [ "...", "dsh-simple-notify" ] } }
-   ```
-
-4. 重启 DSH。启动后看 `lib/turn-notify.log`，应出现 `listener registered`。
-
-**不需要改任何代码。** 路径全部由环境变量或插件自身位置推导：
-
-| 用途 | 解析顺序 |
-|---|---|
-| profile 目录 | `config.profileDir` → `DSH_PROFILE_DIR` → `<DSH_HOME>/profiles/<DSH_PROFILE>` → 插件目录的上级的上级 |
-
-## 这台机器上的一个坑：AUMID
-
-Windows 的 Toast **只能由已注册 AppUserModelId 的应用发出**。注册方式是在开始菜单里有一个
-带 `System.AppUserModel.ID` 属性的快捷方式。
-
-本机的注册情况（实测）：
-
-```
-C:\Users\30499\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\DeepSeek Harness.lnk
-  AppUserModel.ID = com.deepseek.dsh
-```
-
-**这个属性是 DSH 安装程序写进去的，不是插件写的。** 新机器装完 DSH 通常会再写一次；
-如果没有，气泡会**静默不显示**（Windows 不报错）。
-
-检查方法：
+**2. 在 profile 的 `node_modules` 下建 junction**：
 
 ```powershell
-$lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\DeepSeek Harness.lnk"
-$shell = New-Object -ComObject Shell.Application
-$d = $lnk.Substring(0, $lnk.LastIndexOf('\'))
-$n = $lnk.Substring($lnk.LastIndexOf('\') + 1)
-$shell.Namespace($d).ParseName($n).ExtendedProperty('System.AppUserModel.ID')
+New-Item -ItemType Junction `
+  -Path   "$env:DSH_HOME\profiles\desktop\node_modules\dsh-simple-notify" `
+  -Target "D:\tools\dsh-simple-notify"
 ```
 
-## 配置项
+> Windows 上 `Junction` 不需要管理员权限，也不用复制文件——改源码立即生效。
+
+**3. 在 profile 的 `package.json` 里登记两处**：
+
+```json
+{
+  "dependencies": {
+    "dsh-simple-notify": "file:D:/tools/dsh-simple-notify"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": ["...", "dsh-simple-notify"]
+    }
+  }
+}
+```
+
+**4. 在 profile 的 `cordis.patch.yml` 里加一条 entry**——**少了这步设置卡片不会出现**：
+
+```yaml
+- id: simple-notify
+  name: dsh-simple-notify
+```
+
+**5. 重启 DSH**。看 `lib/turn-notify.log`，出现这两行就成了：
+
+```
+registering listener; script=...\lib\notify.ps1
+listener registered
+```
+
+<br>
+
+## 设置
+
+位置：**设置 → 左侧「气泡提醒」**（不在插件页，插件页只有 README）。
+
+| 开关 | 默认 | 说明 |
+|---|---|---|
+| **播放声音** | 开 | 弹提醒时播系统提示音。关掉则完全静音 |
+| **运行全屏程序时提示** | 开 | 全屏看视频/玩游戏时也弹 |
+| **在前台时不提示** | 开 | DSH 窗口本来就是活动窗口时不打扰你 |
+| **需要用户做出选择时提示** | 开 | 模型停下来等你点选项时，单独弹一个 |
+
+**改完立即生效，不用重启。**
+
+<br>
+
+## 没有「总开关」，也没有「子任务提醒」
+
+这是两个刻意的减法，不是漏做。
+
+**没有总开关**：插件跑不跑由 DSH 的插件页管（停用/卸载）。插件自己再造一个「启用提醒」，
+只会看起来能用、实际还挂着一堆已注册的监听器。
+
+**没有子任务提醒**：子智能体是调用方自己派出去的，它干完活通常紧接着主任务就回复了，
+于是子任务的气泡会在主任务气泡之前几秒弹一次——**同一件事弹两遍**。
+
+代码里把 `header.origin === 'subagent'` 当作硬规则直接忽略。**确实需要的话**（比如在手机上派活、
+电脑不在旁边）可以自己加回来，但**这条路径没有实测过**，改完请自己验证：
+
+1. `lib/settings-store.js` 的 `SETTING_SPECS` 加一项
+   `showSubagents: { kind: 'boolean', label: '子任务完成时提示', help: '...', implemented: true }`
+2. `lib/index.js` 的 `Config` 加回 `.boolean().default(true).volatile()`，
+   两处监听器的 `if (header?.origin === 'subagent')` 改成
+   `if (live().showSubagents !== true && header?.origin === 'subagent')`
+3. `lib/client.js` 的 `FIELDS` 加 `['showSubagents', 'boolean']`，中英词典各补两条
+
+<br>
+
+## 配置文件与命令行
+
+界面之外还有两条路。配置文件在 `%DSH_HOME%\simple-notify\settings.json`：
+
+```json
+{
+  "sound": true,
+  "fullscreenNotify": true,
+  "suppressWhenForeground": true,
+  "showQuestions": true
+}
+```
+
+命令行（**改完需要重启才被读到**，界面改则不用）：
+
+```powershell
+node lib\settings-cli.js show
+node lib\settings-cli.js set sound false
+node lib\settings-cli.js reset
+```
+
+<br>
+
+## 不常改的配置
 
 在 profile 的 `cordis.patch.yml` 里覆盖（`id: simple-notify`）：
 
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `title` | `任务完成` | 轮次结束气泡的标题 |
-| `suppressWhenForeground` | `true` | 前台不弹 |
-| `showSubagents` | `false` | 子 agent 也弹 |
-| `showQuestions` | `true` | 提问时弹 |
 | `aumid` | `com.deepseek.dsh` | 换版 DSH 后 AUMID 变了要改这里 |
-| `appProcessNames` | `["DeepSeek Harness"]` | 判定「前台」用的进程名；DSH 改名后要改 |
-| `powershellPath` | 环境变量 `DSH_NOTIFY_POWERSHELL` 或 `powershell.exe` | |
-| `clickToFocus` | `true` | 点气泡把 DSH 叫到前台。设 `false` 则气泡不可点，行为回到旧版 |
-| `enabled` | `true` | 设 `false` 关闭整个插件 |
+| `appProcessNames` | `["DeepSeek Harness"]` | 判定「前台」用的进程名 |
+| `powershellPath` | `powershell.exe` | 也可用环境变量 `DSH_NOTIFY_POWERSHELL` 指定 |
+| `clickToFocus` | `true` | 点气泡把 DSH 叫到前台；设 `false` 则气泡不可点 |
 
-## 自检
+<br>
+
+## 工作原理
+
+### 气泡怎么发出去
+
+两条路径，按 `SHQueryUserNotificationState` 的返回值自动选：
+
+| 状态 | 走哪条 | 特点 |
+|---|---|---|
+| `QUNS_ACCEPTS_NOTIFICATIONS`（5） | WinRT `ToastNotificationManager` | 进通知中心，**有声音** |
+| 其他（全屏 / 忙 / 专注助手） | 自绘置顶窗口 `toast-window.ps1` | 一定看得见，**按钮式不打扰系统** |
+
+**全屏时为什么原本没声音**：全屏程序在前台时 Windows 进入 `QUNS_BUSY`，
+shell **既不放声音也不画横幅**。所以走自绘窗口时，插件自己用
+`[System.Media.SystemSounds]::Asterisk.Play()` 补上声音，同样受「播放声音」开关控制。
+
+### 点气泡回到 DSH
+
+toast XML 里放 `<action activationType="protocol" arguments="dsh://open">`，
+点击交给 Windows 激活 `dsh:` 协议，命中的是 DSH 单实例处理器
+（`claimDesktopSingleInstance` → `focusPrimaryWindow`）。
+
+> **只能定位到「DSH 窗口」，不能定位到具体会话。** 桌面外壳没有会话级深链
+> （`protocol.handle` 只认 `dsh://shell` 和 `dsh://app`）。做到「点通知直达某条会话」
+> 得补一个浏览器端半边去调 `ctx.uiWorkspace.openSession()`，是另一个量级的改动。
+
+### 设置界面是怎么做出来的
+
+这是整个项目最花时间的部分，写下来省得别人重走：
+
+- 浏览器半边写在 `lib/client.js`，用 `window.__ModuleLoader__.load({ id, factory })` 注册
+- `package.json` 里必须有 `"exports": { "./client": "./lib/client.js" }`
+  和 `"dsh": { "client": { "platform": "web" } }`
+- 挂载点是 **`settings.section`**（设置页左侧的导航行）：
+
+  ```js
+  ctx.slots.inject('settings.section', () =>
+    ctx.slots.register({
+      name: 'settings.section', id: 'simple-notify', order: 100,
+      label: () => t('title'), locale: NS,
+    }, NotifyCard)
+  )
+  ```
+
+- **只写 `name`/`id`/`order`/`label`/`locale` 这五个字段。**
+  写了 `inject` / `children` 也不生效
+- **组件必须无参**，`t` 在 `apply()` 里绑好、用闭包带进去。
+  传参的组件拿不到 props 会抛异常 → React 丢掉整棵子树 → **整页白屏**
+- 数据**不要走 `configForms`**（永远返回 `{ status: 'loading' }`）。
+  本插件自建三条 HTTP 路由 `/api/dsh-simple-notify-settings/{describe,mutate,log}`，前端直接 `fetch`
+
+<br>
+
+## 每日自检
 
 每天第一次加载时跑一次，结果写进 `lib/turn-notify.log`，有问题会弹气泡。检查五项：
 
 1. profile 的 junction 能解析
 2. 插件自己的文件齐
-3. `package.json` 有 `exports`（缺了加载器会静默跳过）
+3. `package.json` 有 `exports`（缺了加载器会**静默跳过**）
 4. profile 的 `bundles` 和 `dependencies` 里还有它
-5. **AUMID 是否已注册**——读开始菜单快捷方式的 `System.AppUserModel.ID`，
-   和插件发送用的 `aumid` 比对。缺失/为空/不匹配都会报出来。
+5. **AUMID 是否已注册**
 
-第 5 项**只报告，不修改任何系统设置**。确认缺失后按上面的命令自己补快捷方式。
+### AUMID 是什么
+
+Windows 的 Toast **只能由已注册 AppUserModelId 的应用发出**。注册方式是在开始菜单里有一个
+带 `System.AppUserModel.ID` 属性的快捷方式。
+
+**这个属性由 DSH 安装程序写入，不是本插件写的。** 新机器装完 DSH 通常会写；
+如果没有，气泡会**静默不显示**（Windows 不报错）。手动检查：
+
+```powershell
+$lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\DeepSeek Harness.lnk"
+$dir = $lnk.Substring(0, $lnk.LastIndexOf('\'))
+$nam = $lnk.Substring($lnk.LastIndexOf('\') + 1)
+(New-Object -ComObject Shell.Application).Namespace($dir).ParseName($nam).ExtendedProperty('System.AppUserModel.ID')
+```
 
 日志里正常时会有一行：
 
@@ -124,21 +223,54 @@ $shell.Namespace($d).ParseName($n).ExtendedProperty('System.AppUserModel.ID')
 self-check: AUMID "com.deepseek.dsh" is registered by C:\...\DeepSeek Harness.lnk
 ```
 
-换电脑后没看到这行，就说明气泡不会显示。
+**换电脑后没看到这行，就说明气泡不会显示。** 第 5 项只报告，不修改任何系统设置。
 
-## 依赖的平台事实
+<br>
 
-- **Windows 专用**（`package.json` 里 `os: ["win32"]`），气泡靠 WinRT `ToastNotificationManager`
-- **PowerShell 5.1 起**。不需要 `pwsh`
-- `.ps1` 文件必须是**纯 ASCII**：PowerShell 5.1 用 ANSI 代码页读脚本，中文字面量会乱码。
-  所以中文全部以 Base64(UTF-8) 通过环境变量传入，脚本里只做解码
+## 踩过的坑（改这几个文件前先看）
 
-### 踩过的坑（改这几个文件前先看）
+**设置不生效类**
 
-1. **`Add-Type` 编译的 C# 里不能写任何 PowerShell 语法**。我把 `Get-Variable`/`Write-Output`
-   写进了 `OnClick`，编译报 `应输入 ;`。
-2. **C# 类里不能调用 PowerShell 函数**。跨语言只能用委托：PowerShell 把 scriptblock 转成
-   `[Func[int,string]]`，C# 存成字段，点击时调用。这样 Win32 的聚焦逻辑只写一份（在 `notify.ps1`）。
-3. **`Add-Type` 会缓存类型**，同一个会话里重复定义同名类会报「类型已存在」。
-4. 窗口跑在 `Application.Run` 的消息循环里，事件处理器中拿到的异常要拆 `InnerException` 才有用。
+1. **`this.silent` 在构造函数里算死**——`send()` 读它会用旧值。
+   正确做法是调用方把当前值**传参**进来：`silent === undefined ? this.silent : silent`
+2. **`dispatch` 日志骗人**——打印的是「传参前算出的值」，不等于真正传给脚本的值。
+   排查时一定要打 `env` 那一行（实际塞进子进程的环境变量）
+3. **总开关只在启动时判断**——`apply()` 开头 `return` 之后关掉开关，已注册的监听器不会注销。
+   **结论：这种开关根本不该有**
+4. **`settings.json` 改了不重启也要生效**——靠 `liveSettings` 每次触发时现读，别捕获闭包
 
+**DSH 前端类**
+
+5. **`cordis.patch.yml` 是必需入口**，改名或删掉 DSH 直接起不来：
+   `dsh: failed to read overlay ...: Error: ENOENT`
+6. **inline `inject: () => ({ t })` 不会被执行**——组件从 `props` 拿不到 `t` 就崩，
+   React 丢整棵子树，表现为**整页白屏**、控制台无错
+7. **`configForms` 在自写插件里拿不到数据**——永远是 `{ status: 'loading', value: undefined }`
+8. **编辑工具 `old_string` 别跨重复行**——我用跨两行的 `old_string` 删 `['enabled','boolean'],`，
+   结果两个匹配都变成 `['sound','boolean'],`，界面上同一个开关出现了两次
+
+**PowerShell / Win32 类**
+
+9. **`.ps1` 必须纯 ASCII**——PowerShell 5.1 用 ANSI 代码页读脚本，中文字面量会乱码。
+   中文全部以 Base64(UTF-8) 通过环境变量传入，脚本里只做解码
+10. **`Add-Type` 编译的 C# 里不能写 PowerShell 语法**——`Get-Variable`/`Write-Output` 写进
+    `OnClick` 会报「应输入 ;」
+11. **C# 类里不能调 PowerShell 函数**——跨语言只能走委托：scriptblock 转成 `[Func[int,string]]`，
+    C# 存成字段，点击时调用
+12. **`Add-Type` 会缓存类型**——同一会话重复定义同名类会报「类型已存在」
+13. **窗口跑在 `Application.Run` 的消息循环里**——事件处理器里的异常要拆 `InnerException` 才看得出原因
+
+<br>
+
+## 卸载
+
+1. 从 profile 的 `package.json` 里删掉 `bundles` 和 `dependencies` 两处的 `dsh-simple-notify`
+2. 删掉 profile `cordis.patch.yml` 里 `id: simple-notify` 那条 entry
+3. 删掉 junction
+4. 可选：删掉 `%DSH_HOME%\simple-notify\`
+
+<br>
+
+## 许可
+
+MIT

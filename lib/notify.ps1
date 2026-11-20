@@ -13,6 +13,13 @@
 #                              names; defaults to 'DeepSeek Harness'
 #   DSH_NOTIFY_MODE            'auto' (default) | 'toast' | 'overlay'
 #   DSH_NOTIFY_HOLD_MS         overlay visibility in ms (default 4200)
+#   DSH_NOTIFY_SILENT          '1' removes <audio> from the toast XML, so the
+#                              shell plays no sound. The overlay path never
+#                              made noise and ignores this.
+#   DSH_NOTIFY_FULLSCREEN_MODE 'show' (default) | 'skip'. Only consulted when
+#                              the foreground window covers its monitor and no
+#                              DSH window is in front: 'skip' then sends
+#                              nothing at all instead of drawing over the app.
 #   DSH_NOTIFY_DRY_RUN         '1' to report what would happen without sending
 #   DSH_NOTIFY_WINDOW_PID      Process id of the DSH window process. When set,
 #                              clicking the notification brings that window to
@@ -174,6 +181,46 @@ public class DshFocus {
 $title = Decode-B64Utf8 $env:DSH_NOTIFY_TITLE_B64
 $body = Decode-B64Utf8 $env:DSH_NOTIFY_BODY_B64
 
+# Fullscreen rule. Checked before anything is drawn, so 'skip' really sends
+# nothing: not a toast, not an overlay, no sound. The DSH-foreground check has
+# already run above and exits early, so reaching here means some other
+# application is in front; whether it is fullscreen is the only open question.
+if ($env:DSH_NOTIFY_FULLSCREEN_MODE -eq 'skip') {
+  $sigFs = @'
+using System;
+using System.Runtime.InteropServices;
+public static class DshFullscreen {
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
+  [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO info);
+  [StructLayout(LayoutKind.Sequential)] public struct MONITORINFO { public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags; }
+  public static bool IsForegroundFullscreen() {
+    IntPtr h = GetForegroundWindow();
+    if (h == IntPtr.Zero) return false;
+    RECT w; if (!GetWindowRect(h, out w)) return false;
+    IntPtr m = MonitorFromWindow(h, 2);
+    MONITORINFO mi = new MONITORINFO(); mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+    if (!GetMonitorInfo(m, ref mi)) return false;
+    return w.Left <= mi.rcMonitor.Left && w.Top <= mi.rcMonitor.Top
+        && w.Right >= mi.rcMonitor.Right && w.Bottom >= mi.rcMonitor.Bottom;
+  }
+}
+'@
+  $isFullscreen = $false
+  try {
+    if (-not ('DshFullscreen' -as [type])) { Add-Type -TypeDefinition $sigFs }
+    $isFullscreen = [DshFullscreen]::IsForegroundFullscreen()
+  } catch {
+    $isFullscreen = $false
+  }
+  if ($isFullscreen) {
+    Write-Output 'suppressed (fullscreen app in front)'
+    exit 0
+  }
+}
+
 # The window process to bring forward when the notification is clicked. Absent
 # or unparsable means the notification stays inert, which is the old behaviour.
 $windowPid = 0
@@ -256,8 +303,18 @@ if ($windowPid -gt 0) {
     '" activationType="protocol" arguments="dsh://open"/></actions>'
 }
 
+# The shell plays the default notification sound unless the toast carries its
+# own <audio>. An explicit silent element overrides that default; simply
+# omitting <audio> is NOT enough, because the default applies again.
+$audio = ''
+if ($env:DSH_NOTIFY_SILENT -eq '1') {
+  $audio = '<audio silent="true"/>'
+} elseif ($env:DSH_NOTIFY_SILENT -eq 'default') {
+  $audio = '<audio src="ms-winsoundevent:Notification.Default"/>'
+}
+
 $xmlText = '<?xml version="1.0" encoding="utf-8"?>' +
-  '<toast duration="short"><visual><binding template="ToastGeneric">' +
+  '<toast duration="short">' + $audio + '<visual><binding template="ToastGeneric">' +
   $textNodes +
   '</binding></visual>' + $actions + '</toast>'
 

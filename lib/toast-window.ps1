@@ -339,6 +339,21 @@ public class DshToastWindow : Form
 }
 '@ -ReferencedAssemblies System.Windows.Forms, System.Drawing -ErrorAction Stop
 
+# Plays the standard notification chime in this process. Used because the toast
+# path cannot run while a fullscreen app owns the screen: Windows suppresses the
+# whole toast (banner AND sound) in QUNS_BUSY, so we draw our own window and have
+# to make the noise ourselves. Deliberately not [Console]::Beep - that is a raw
+# square-wave beep from the motherboard, not the sound the user configured.
+function Play-NotificationSound {
+  if ($env:DSH_NOTIFY_SILENT -eq '1') { return }
+  try {
+    Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+    [System.Media.SystemSounds]::Asterisk.Play()
+  } catch {
+    # Never let a missing sound break the toast itself.
+  }
+}
+
 # Hand the focus helper to the click handler. The compiled window cannot call a
 # PowerShell function, but a scriptblock converts to Func<int,string>, which the
 # window invokes on click. Stand-alone use (notify.ps1 absent) leaves the
@@ -348,6 +363,8 @@ $focusCommand = Get-Command Focus-DshWindow -CommandType Function -ErrorAction S
 if ($null -ne $focusCommand) {
   $focusAction = [Func[int, string]] $focusCommand.ScriptBlock
 }
+
+Play-NotificationSound
 
 $outcome = [DshToastWindow]::ShowToast($title, $body, $accent, $holdMs, $focusAction)
 if ($outcome) { Write-Output $outcome }

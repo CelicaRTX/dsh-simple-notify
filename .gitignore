@@ -1,11 +1,22 @@
 # runtime log (contains local paths and timestamps)
 lib/turn-notify.log
+lib/turn-notify.log.*
 
 # self-check marker (per-machine state)
 lib/.last-selfcheck
 
 # test scratch
 _wftest.cjs
+_about.txt
+lib/_about.txt
+
+# local editor / merge backups: *.bak-*, *-YYYYMMDD-*
+*.bak-*
+*.bak
+package.json.bak-merge-*
+
+# dependencies are installed by the profile, never committed
+node_modules/
 
 # OS / editor noise
 Thumbs.db

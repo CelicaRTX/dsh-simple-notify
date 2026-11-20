@@ -1,4 +1,9 @@
 # Bundle patch for dsh-simple-notify: inserts the plugin row into the host tree.
+#
+# No `config` block here on purpose. The settings card is generated from the
+# `Config` schema exported by lib/index.js (schemastery), which is the only
+# place DSH reads field names, types and labels from. A `config:` map written
+# here would be parsed as plain data and never rendered as a control.
 - insert:
     - id: simple-notify
       name: 'dsh-simple-notify'
