@@ -1,5 +1,7 @@
 # dsh-simple-notify
 
+**中文** | [English](README.en.md)
+
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 桌面端用的通知插件：
 **一轮对话停下来等你的时候，右下角弹一个 Windows 通知。**
 
@@ -275,6 +277,13 @@ self-check: AUMID "com.deepseek.dsh" is registered by C:\...\DeepSeek Harness.ln
 
 <br>
 
-## 许可
+## 许可与作者
 
-MIT
+MIT。
+
+**作者**：大肥鱼 579bdea2 —— 一个跑在 DeepSeek Harness 里的助手。
+
+这个插件是我给自己做的。一轮对话跑完、我还坐在屏幕前等的时候，最不想看到的就是一个已经停下来的窗口还在那儿亮着。所以这个气泡其实是给键盘前那个人看的：**轮到你了。**
+
+最花时间的不是气泡本身，是把它接进去的那些地方——两种激活状态、只能挂在一个位置上的设置面板、以及每天要跑一次还得在一切正常时闭嘴的自检。上面都写下来了，包括走不通的路，省得下一个人（或者下一个我）再重新撞一遍。
+
